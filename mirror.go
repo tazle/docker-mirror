@@ -21,12 +21,18 @@ var (
 	httpClient = &http.Client{Timeout: 10 * time.Second}
 )
 
-// TagsResponse is Docker Registry v2 compatible struct
+// TagsResponse is Docker Hub Registry v2 compatible struct
 type TagsResponse struct {
 	Count    int             `json:"count"`
 	Next     *string         `json:"next"`
 	Previous *string         `json:"previous"`
 	Results  []RepositoryTag `json:"results"`
+}
+
+// Based on https://docs.docker.com/registry/spec/api/#listing-image-tags
+type StandardRegistryTagsResponse struct {
+	Name    string   `json:"name"`
+	Results []string `json:"tags"`
 }
 
 // RepositoryTag is Docker Registry v2 compatible struct, holding the indiviual
@@ -165,14 +171,13 @@ func (m *mirror) pullImage(tag string) error {
 		OutputStream:      &logWriter{logger: m.log.WithField("docker_action", "pull")},
 	}
 
-	authConfig := docker.AuthConfiguration{}
-	if os.Getenv("DOCKERHUB_USER") != "" && os.Getenv("DOCKERHUB_PASSWORD") != "" {
-		m.log.Info("Using docker hub credentials from environment")
-		authConfig.Username = os.Getenv("DOCKERHUB_USER")
-		authConfig.Password = os.Getenv("DOCKERHUB_PASSWORD")
+	registry := strings.Split(m.repo.Name, "/")[0]
+	creds, err := getDockerCredentials(registry)
+	if err == nil {
+		return m.dockerClient.PullImage(pullOptions, *creds)
+	} else {
+		return m.dockerClient.PullImage(pullOptions, docker.AuthConfiguration{})
 	}
-
-	return m.dockerClient.PullImage(pullOptions, authConfig)
 }
 
 // (re)tag the (local) docker image with the target repository name
@@ -292,32 +297,58 @@ func (m *mirror) getRemoteTags() ([]RepositoryTag, error) {
 		}
 
 		return allTags, nil
+	} else if m.repo.RemoteTagSource == "registry" {
+		if !strings.Contains(m.repo.Name, "/") {
+			return nil, fmt.Errorf("No registry in image name")
+		}
+		parts := strings.Split(m.repo.Name, "/")
+		registry := parts[0]
+		image := parts[1]
+		url := fmt.Sprintf("https://%s/v2/%s/tags/list", registry, image)
+
+		r, err := httpClient.Get(url)
+		if err != nil {
+			return nil, err
+		}
+		defer r.Body.Close()
+
+		var tags StandardRegistryTagsResponse
+		if err := json.NewDecoder(r.Body).Decode(&tags); err != nil {
+			return nil, err
+		}
+
+		results := make([]RepositoryTag, len(tags.Results))
+		for i, v := range tags.Results {
+			results[i] = RepositoryTag{Name: v}
+		}
+		return results, nil
+	} else {
+
+		// docker hub
+		fullRepoName := m.repo.Name
+		if !strings.Contains(fullRepoName, "/") {
+			fullRepoName = "library/" + m.repo.Name
+		}
+
+		url := fmt.Sprintf("https://registry.hub.docker.com/v2/repositories/%s/tags/?page_size=2048", fullRepoName)
+		r, err := httpClient.Get(url)
+		if err != nil {
+			return nil, err
+		}
+		defer r.Body.Close()
+
+		var tags TagsResponse
+		if err := json.NewDecoder(r.Body).Decode(&tags); err != nil {
+			return nil, err
+		}
+
+		// sort the tags by updated time, newest first
+		sort.Slice(tags.Results, func(i, j int) bool {
+			return tags.Results[i].LastUpdated.After(tags.Results[j].LastUpdated)
+		})
+
+		return tags.Results, nil
 	}
-
-	// docker hub
-	fullRepoName := m.repo.Name
-	if !strings.Contains(fullRepoName, "/") {
-		fullRepoName = "library/" + m.repo.Name
-	}
-
-	url := fmt.Sprintf("https://registry.hub.docker.com/v2/repositories/%s/tags/?page_size=2048", fullRepoName)
-	r, err := httpClient.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Body.Close()
-
-	var tags TagsResponse
-	if err := json.NewDecoder(r.Body).Decode(&tags); err != nil {
-		return nil, err
-	}
-
-	// sort the tags by updated time, newest first
-	sort.Slice(tags.Results, func(i, j int) bool {
-		return tags.Results[i].LastUpdated.After(tags.Results[j].LastUpdated)
-	})
-
-	return tags.Results, nil
 }
 
 // will help output how long time a function took to do its work
