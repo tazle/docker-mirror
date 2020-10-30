@@ -48,6 +48,20 @@ type Repository struct {
 	TargetPrefix    *string           `yaml:"target_prefix"`
 }
 
+func loadConfigFile(configFile string) (*Config, error) {
+	content, err := ioutil.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+
+	err = yaml.Unmarshal(content, &config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
 func main() {
 	// log level
 	if rawLevel := os.Getenv("LOG_LEVEL"); rawLevel != "" {
@@ -64,13 +78,9 @@ func main() {
 		configFile = f
 	}
 
-	content, err := ioutil.ReadFile(configFile)
+	config, err := loadConfigFile(configFile)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Could not read config file: %s", err))
-	}
-
-	if err := yaml.Unmarshal(content, &config); err != nil {
-		log.Fatal(fmt.Sprintf("Could not parse config file: %s", err))
+		log.Fatal(fmt.Sprintf("Could not load config file: %s", err))
 	}
 
 	if config.Target.Registry == "" {
