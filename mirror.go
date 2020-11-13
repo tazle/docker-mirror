@@ -151,11 +151,16 @@ func (m *mirror) filterTags() {
 // return the name of repostiory, as it should be on the target
 // this include any target repository prefix + the repository name in DockerHub
 func (m *mirror) targetRepositoryName() string {
-	if m.repo.TargetPrefix != nil {
-		return fmt.Sprintf("%s%s", *m.repo.TargetPrefix, m.repo.Name)
+	repoName := m.repo.Name
+	if m.repo.RemoteTagSource == "registry" {
+		repoName = strings.Split(m.repo.Name, "/")[1]
 	}
 
-	return fmt.Sprintf("%s%s", config.Target.Prefix, m.repo.Name)
+	if m.repo.TargetPrefix != nil {
+		return fmt.Sprintf("%s%s", *m.repo.TargetPrefix, repoName)
+	}
+
+	return fmt.Sprintf("%s%s", config.Target.Prefix, repoName)
 }
 
 // pull the image from remote repository to local docker agent
@@ -171,6 +176,7 @@ func (m *mirror) pullImage(tag string) error {
 	}
 
 	registry := strings.Split(m.repo.Name, "/")[0]
+	m.log.Info("Get credentials for registry: %s", registry)
 	creds, err := getDockerCredentials(registry)
 	if err == nil {
 		return m.dockerClient.PullImage(pullOptions, *creds)
