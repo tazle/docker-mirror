@@ -153,7 +153,7 @@ func (m *mirror) filterTags() {
 func (m *mirror) targetRepositoryName() string {
 	repoName := m.repo.Name
 	if m.repo.RemoteTagSource == "registry" {
-		repoName = strings.Split(m.repo.Name, "/")[1]
+		repoName = strings.SplitN(m.repo.Name, "/", 2)[1]
 	}
 
 	if m.repo.TargetPrefix != nil {
@@ -176,7 +176,7 @@ func (m *mirror) pullImage(tag string) error {
 	}
 
 	registry := strings.Split(m.repo.Name, "/")[0]
-	m.log.Info("Get credentials for registry: %s", registry)
+	m.log.Infof("Get credentials for registry: %s", registry)
 	creds, err := getDockerCredentials(registry)
 	if err == nil {
 		return m.dockerClient.PullImage(pullOptions, *creds)
@@ -306,12 +306,12 @@ func (m *mirror) getRemoteTags() ([]RepositoryTag, error) {
 		if !strings.Contains(m.repo.Name, "/") {
 			return nil, fmt.Errorf("No registry in image name")
 		}
-		parts := strings.Split(m.repo.Name, "/")
+		parts := strings.SplitN(m.repo.Name, "/", 2)
 		registry := parts[0]
 		image := parts[1]
 		url := fmt.Sprintf("https://%s/v2/%s/tags/list", registry, image)
 
-		m.log.Infof("Get credentials for registry: %s", registry)
+		m.log.Infof("Get credentials for registry: %s, image: %s", registry, image)
 		creds, err := getDockerCredentials(registry)
 		m.log.Infof("Username: %s, password: %s", creds.Username, creds.Password)
 
