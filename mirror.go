@@ -311,7 +311,14 @@ func (m *mirror) getRemoteTags() ([]RepositoryTag, error) {
 		image := parts[1]
 		url := fmt.Sprintf("https://%s/v2/%s/tags/list", registry, image)
 
-		r, err := httpClient.Get(url)
+		m.log.Infof("Get credentials for registry: %s", registry)
+		creds, err := getDockerCredentials(registry)
+		m.log.Infof("Username: %s, password: %s", creds.Username, creds.Password)
+
+		req, err := http.NewRequest("GET", url, nil)
+		req.SetBasicAuth(creds.Username, creds.Password)
+		r, err := httpClient.Do(req)
+
 		if err != nil {
 			return nil, err
 		}
